@@ -1,7 +1,5 @@
 
-# Guardiant
-=======
-# Guardiant Protocol Overview
+
 ## Project Description
 **Guardiant** is a decentralized Web3 security protocol designed to safeguard users' crypto assets from rug pulls and malicious activities. It employs smart contract automation paired with real-time anomaly detection to activate a self-destructing safety mechanism.
 ![SaveMe Protocol Overview - visual selection](https://github.com/user-attachments/assets/aa289ece-3b84-46da-8c4f-ff54169e6be4)
