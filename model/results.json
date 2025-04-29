@@ -1,0 +1,51 @@
+[
+  {
+    "transaction_hash": "0x123...",
+    "is_anomaly": false,
+    "anomaly_types": [
+      {
+        "type": "normal",
+        "severity": "none",
+        "details": "No anomalies detected"
+      }
+    ],
+    "transaction_details": {
+      "value": 0.0,
+      "gas": 21000.0,
+      "gasPrice": 50000000000.0,
+      "timestamp": "2023-03-15T17:27:28"
+    }
+  },
+  {
+    "transaction_hash": "0x456...",
+    "is_anomaly": true,
+    "anomaly_types": [
+      {
+        "type": "high_value_transaction",
+        "severity": "high",
+        "details": "Transaction value (1.0) exceeds threshold (0.000833543706623585)"
+      },
+      {
+        "type": "high_gas_consumption",
+        "severity": "medium",
+        "details": "Gas usage (150000.0) exceeds threshold (82380.0)"
+      },
+      {
+        "type": "high_gas_price",
+        "severity": "medium",
+        "details": "Gas price (100000000000.0) exceeds threshold (33047697923.0)"
+      },
+      {
+        "type": "unusual_value_gas_ratio",
+        "severity": "low",
+        "details": "Value/gas ratio (6.666666666666667e-06) is unusually high"
+      }
+    ],
+    "transaction_details": {
+      "value": 1.0,
+      "gas": 150000.0,
+      "gasPrice": 100000000000.0,
+      "timestamp": "2023-03-15T17:27:28"
+    }
+  }
+]
