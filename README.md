@@ -1,8 +1,7 @@
 
-**GUARDIANT**
 
 ## Project Description
-**SaveMe** is a decentralized Web3 security protocol designed to safeguard users' crypto assets from rug pulls and malicious activities. It employs smart contract automation paired with real-time anomaly detection to activate a self-destructing safety mechanism.
+**Guardiant** is a decentralized Web3 security protocol designed to safeguard users' crypto assets from rug pulls and malicious activities. It employs smart contract automation paired with real-time anomaly detection to activate a self-destructing safety mechanism.**Guardiant can be termed as SaveMe Protocol too**
 ![SaveMe Protocol Overview - visual selection](https://github.com/user-attachments/assets/aa289ece-3b84-46da-8c4f-ff54169e6be4)
 
 
