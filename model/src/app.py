@@ -5,11 +5,12 @@ This module provides a FastAPI interface for the blockchain anomaly detection sy
 It exposes endpoints for model training and anomaly detection.
 """
 
-from fastapi import FastAPI, HTTPException, BackgroundTasks
+from fastapi import FastAPI, HTTPException, BackgroundTasks, Header
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any
+import hmac
 import os
 import json
 from datetime import datetime
@@ -27,14 +28,39 @@ app = FastAPI(
     version="1.0.0"
 )
 
-# Add CORS middleware
+# CORS. allow_credentials is False: combined with allow_origins=["*"] Starlette
+# echoes the caller's own Origin back and sets Access-Control-Allow-Credentials,
+# which is the one CORS configuration browsers treat as "any site may make
+# authenticated cross-origin calls here". Nothing in this API uses cookies, so
+# credentials are simply off.
+_allowed_origins = [
+    o.strip() for o in os.getenv("ALLOWED_ORIGINS", "*").split(",") if o.strip()
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Allows all origins
-    allow_credentials=True,
-    allow_methods=["*"],  # Allows all methods
-    allow_headers=["*"],  # Allows all headers
+    allow_origins=_allowed_origins,
+    allow_credentials=False,
+    allow_methods=["GET", "POST"],
+    allow_headers=["Content-Type", "X-Train-Key"],
 )
+
+# Retraining replaces the model that every /detect call is scored against, so on
+# a public deployment it is the most damaging endpoint here: crafted training
+# data teaches the detector that a drain is normal. Fails closed — without a key
+# configured, training is disabled rather than open.
+TRAIN_API_KEY = os.getenv("TRAIN_API_KEY", "")
+
+
+def _authorize_training(provided: Optional[str]) -> None:
+    if not TRAIN_API_KEY:
+        raise HTTPException(
+            status_code=503,
+            detail="Training is disabled. Set TRAIN_API_KEY to enable it.",
+        )
+    # compare_digest to keep the comparison constant-time.
+    if not provided or not hmac.compare_digest(provided, TRAIN_API_KEY):
+        raise HTTPException(status_code=401, detail="Invalid or missing X-Train-Key")
 
 class Transaction(BaseModel):
     """Pydantic model for a blockchain transaction."""
@@ -57,7 +83,9 @@ class Transaction(BaseModel):
 
 class TransactionList(BaseModel):
     """Pydantic model for a list of transactions."""
-    transactions: List[Transaction]
+    # Bounded so a single unauthenticated request cannot pin the free-tier CPU
+    # this runs on. The frontend proxy caps at 500; this backstops direct callers.
+    transactions: List[Transaction] = Field(..., min_length=1, max_length=1000)
 
 class TrainingResponse(BaseModel):
     """Pydantic model for training response."""
@@ -96,7 +124,8 @@ async def root():
 @app.post("/train", response_model=TrainingResponse, tags=["Model Management"])
 async def train(
     background_tasks: BackgroundTasks,
-    transactions: Optional[TransactionList] = None
+    transactions: Optional[TransactionList] = None,
+    x_train_key: Optional[str] = Header(default=None, alias="X-Train-Key"),
 ):
     """
     Train the anomaly detection model.
@@ -108,18 +137,23 @@ async def train(
     Returns:
         TrainingResponse: Status of the training request
     """
+    _authorize_training(x_train_key)
+
     try:
         trans_list = [t.dict() for t in transactions.transactions] if transactions else None
         background_tasks.add_task(background_train, trans_list)
-        
+
         return TrainingResponse(
             status="success",
             message="Model training started in background"
         )
-    
+
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error initiating training: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        # Detail withheld: str(e) leaks paths and library internals to callers.
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 @app.post("/detect", response_model=AnomalyDetectionResponse, tags=["Anomaly Detection"])
 async def detect(transactions: TransactionList):
@@ -159,7 +193,8 @@ async def detect(transactions: TransactionList):
         raise
     except Exception as e:
         logger.error(f"Error during anomaly detection: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        # Detail withheld: str(e) leaks paths and library internals to callers.
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 @app.get("/model/status", tags=["Model Management"])
 async def model_status():
@@ -201,11 +236,13 @@ async def http_exception_handler(request, exc):
 
 @app.exception_handler(Exception)
 async def general_exception_handler(request, exc):
+    # Logged with a traceback server-side; the response carried str(exc) before,
+    # which hands filesystem paths and library internals to any caller.
+    logger.error(f"Unhandled error: {exc}", exc_info=True)
     return JSONResponse(
         status_code=500,
         content={
             "error": "Internal server error",
-            "detail": str(exc),
             "timestamp": datetime.now().isoformat()
         }
     ) 

@@ -109,10 +109,13 @@ export function useWallet() {
     }
   }, [userTokens, updateBalances]);
 
+  // These previously watched 'TokenAdded' / 'TokenRemoved', which the Wallet
+  // contract never declared or emitted — so the list never refreshed after a
+  // deposit and the user had to reload. Wired to the events it actually emits.
   useWatchContractEvent({
     address: WALLET_CONTRACT_ADDRESS,
     abi: WalletABI,
-    eventName: 'TokenAdded',
+    eventName: 'Deposited',
     onLogs() {
       refetchTokens();
     },
@@ -121,7 +124,7 @@ export function useWallet() {
   useWatchContractEvent({
     address: WALLET_CONTRACT_ADDRESS,
     abi: WalletABI,
-    eventName: 'TokenRemoved',
+    eventName: 'Withdrawn',
     onLogs() {
       refetchTokens();
     },

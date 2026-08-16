@@ -190,6 +190,61 @@ The `/graph` "anomaly detection" is a client-side simulation
 
 ---
 
+## Part 1b — Security audit
+
+Full sweep of all three codebases. Severity is impact if reached in production.
+
+### Contracts — funds at risk
+
+| # | Severity | Issue |
+| - | -------- | ----- |
+| S1 | **Critical** | `LiquidityPool.swap` priced linearly (`tokenIn * ethReserve / tokenReserve`), so swapping in an amount equal to the token reserve paid out **100% of the pool's ETH**. Unconditional drain. → Rewritten as constant-product (x*y=k) with a 0.3% fee; output is now strictly less than the reserve for any input. |
+| S2 | **Critical** | `removeLiquidity` tracked positions in token units only, ignoring deposited ETH. Deposit tokens with **1 wei** of ETH, withdraw, and take a proportional share of everyone else's ETH. → LP shares are now `sqrt(tokens * eth)`, minted against the limiting side, and redeemed strictly proportionally on both sides. |
+| S3 | **High** | `Wallet.addToken` did `tokenBalances[msg.sender][token] += amount` **with no transfer**. Any caller could credit themselves an arbitrary balance and `transferToken` it onward. → Deposits now pull tokens in and credit only what arrived; `removeToken` actually pays out. |
+| S4 | **High** | `AnomalyGuardWallet.executeAnomalyExit` reverted whenever the guarded balance was large relative to the pool — the escape hatch failed in exactly the case it exists for. → Swap failure is now caught and degrades to sending the tokens to the owner; the exit cannot revert. |
+| S5 | **High** | `.transfer()` (2300 gas) used for every ETH payout. Any owner that is a smart-contract wallet would have had the emergency exit revert permanently, locking funds. → `call{value:}` with an explicit success check. |
+| S6 | Medium | No slippage bounds anywhere. → `minShares` / `minEthOut` / `minTokensOut` on every state-changing entry point. |
+| S7 | Medium | No reentrancy guards; `addLiquidity` made an external `transferFrom` before updating state. → `ReentrancyGuard` on all of them, and reserves tracked in storage so donations cannot move the price. |
+| S8 | Medium | `Wallet.addToken` pushed duplicates unbounded — `getUserTokens` grew forever until it could not be called. → O(1) membership map. |
+| S9 | Medium | `require(token.transferFrom(...))` reverts against non-standard ERC-20s that return no value (USDT). → `SafeERC20` throughout. |
+| S10 | Low | `getSwapRate` divided by `balanceOf` — reverted on an empty pool. → Returns 0 when uninitialised. |
+
+### Web layer
+
+| # | Severity | Issue |
+| - | -------- | ----- |
+| W1 | **High** | **NoSQL injection** in `/api/savecoin`. `tokenAddress` went from the JSON body straight into `findOne`/`updateOne` filters, so `{"tokenAddress":{"$ne":null}}` matched the first document and **overwrote an arbitrary token's** name, symbol, supply and image URL. → zod-validated to a hex address before it reaches a query. |
+| W2 | **High** | 500 responses returned `error.message` **and a full stack trace** to the caller, leaking server paths and database topology. → Logged server-side, generic message returned. Same fix in `/api/chat`, `/api/anomaly` and the FastAPI handlers. |
+| W3 | **High** | `/api/savecoin/test` was an **unauthenticated arbitrary write** into the 512 MB free cluster — any JSON body, inserted verbatim. → Replaced with a non-writing `ping`. |
+| W4 | Medium | CoinMarketCap key read from `NEXT_PUBLIC_COIN_BACK_API_KEY`. Anything with that prefix is inlined into the browser bundle the moment it is referenced from client code. → Renamed `COINMARKETCAP_API_KEY`, old name still honoured as a fallback. |
+| W5 | Medium | `/api/crypto` returned **hardcoded prices with HTTP 200** on any upstream failure, so BTC $45,000 was indistinguishable from live data. → Flagged `fallback: true` and surfaced through `useCryptoPrice`. |
+| W6 | Medium | No size or shape limits on `/api/chat` or `/api/anomaly`, both unauthenticated and both costing money or CPU per call. → zod bounds (2000 chars; 1–500 transactions). |
+| W7 | Medium | Address validation was `startsWith('0x') && length === 42` on a **fund-sending path** fed directly by LLM output — `0xZZZ…` passed. → `isAddress()` from viem. |
+
+### ML service
+
+| # | Severity | Issue |
+| - | -------- | ----- |
+| M1 | **High** | `/train` was unauthenticated on a public Space. Crafted training data teaches the detector that a drain is normal — **model poisoning against every user**. → `X-Train-Key`, constant-time compare, fails closed when unset. |
+| M2 | **High** | Zero-value transactions were dropped during cleaning, so the caller got back **fewer results than it sent with no indication which vanished**. ERC-20 approvals carry `value == 0` — the most common rug-pull vector rendered as though checked and cleared. → `drop_invalid=False` on the scoring path; verified 3 sent, 3 returned. |
+| M3 | Medium | `allow_origins=["*"]` with `allow_credentials=True` makes Starlette echo the caller's Origin and permit credentialed cross-origin calls — any site could drive this API from a visitor's browser, `/train` included. → Credentials off, methods and headers narrowed, origins configurable. |
+| M4 | Medium | `np.bool_` leaked into the response: `np.bool_ or x` returns the numpy object, which FastAPI cannot serialise, so **any forest-only detection 500'd**. Invisible to direct function calls; only reproduced over HTTP. → Coerced, and pinned by a JSON-serialisability test. |
+| M5 | Medium | Writes to filtered DataFrame slices (`SettingWithCopyWarning`) — works by accident today, silently no-ops under pandas copy-on-write. → Explicit `.copy()`. |
+| M6 | Low | Unbounded `/detect` payload. → Capped at 1000 transactions. |
+
+### Performance
+
+| # | Severity | Issue |
+| - | -------- | ----- |
+| P1 | **High** | `useTransactionHistory` put `useBlockNumber({ watch: true })` in its effect's dependency array, so the full scan re-ran **on every new block** (~12 s on Sepolia) on top of a 30 s interval — 10 sequential full-block RPC calls each time, enough to exhaust a public RPC's rate limit, and it re-fired the anomaly request on every pass. → Reads the head inside the fetch, deps no longer change per block, and the 10 calls run concurrently. |
+| P2 | Medium | Token balances on `/wallet` were **fabricated** — '0.05 BTC' / '1.25 LINK' hardcoded against Hardhat's local addresses, with every real token falling through to '0.01 TOKEN'. → Real `balanceOf`/`symbol`/`decimals` via a single viem multicall; unreadable tokens report `UNKNOWN` rather than a plausible number. |
+| P3 | Low | `useWallet` watched `TokenAdded`/`TokenRemoved`, which the contract **never declared or emitted** — the list never refreshed after a deposit. → Wired to the real `Deposited`/`Withdrawn` events. |
+
+Regression tests: `contract/test/LiquidityPool.t.js` (6, covering S1–S5, S8) and
+`model/tests/test_detection_quality.py` (7, covering M2 and M4).
+
+---
+
 ## Part 2 — Deployment runbook
 
 Everything is committed and building. These are the steps that need **your**
@@ -295,7 +350,7 @@ ANOMALY_API_URL                        https://<user>-guardiant-anomaly.hf.space
 MONGODB_URI                            from Atlas
 GOOGLE_GENERATIVE_AI_API_KEY           from AI Studio
 IMGBB_API_KEY                          optional
-NEXT_PUBLIC_COIN_BACK_API_KEY          optional
+COINMARKETCAP_API_KEY                  optional
 ```
 
 Or from the CLI:

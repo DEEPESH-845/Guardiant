@@ -112,13 +112,16 @@ def detect_anomalies(transactions, model_path='models'):
         else:
             df = transactions
         
-        # Clean and transform data
+        # drop_invalid=False: scoring must return one result per transaction sent.
+        # Dropping zero-value rows here meant contract calls and ERC-20 approvals
+        # came back with no verdict at all, which the UI renders identically to
+        # "checked, looks fine".
         cleaner = DataCleaner(df)
-        cleaned_data = cleaner.clean_data()
-        
+        cleaned_data = cleaner.clean_data(drop_invalid=False)
+
         transformer = DataTransformer(cleaned_data)
         transformed_data = transformer.transform_data()
-        
+
         # Load model and detect anomalies
         detector = AnomalyDetectorIsolationForest.load_model(model_path)
         detector.df = transformed_data

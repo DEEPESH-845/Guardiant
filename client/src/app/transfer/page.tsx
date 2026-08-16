@@ -26,6 +26,7 @@ import {
   SiCardano,
 } from 'react-icons/si';
 import { FaArrowRight } from 'react-icons/fa';
+import { isAddress } from 'viem';
 
 // Ethererum special address to represent native ETH
 const ETH_ADDRESS =
@@ -192,8 +193,11 @@ export default function TransactionPage() {
       return;
     }
 
-    // Make sure toAddress is a valid Ethereum address
-    if (!toAddress.startsWith('0x') || toAddress.length !== 42) {
+    // viem's isAddress, not a prefix-and-length check: the old test accepted
+    // any 42-character string starting with 0x, including non-hex ones, on a
+    // path that sends funds. The value can also arrive straight from the LLM
+    // transfer parser, so it is not necessarily something a human typed.
+    if (!isAddress(toAddress)) {
       setStatusMessage('Please enter a valid Ethereum address');
       return;
     }

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { usePublicClient, useBlockNumber, useAccount } from 'wagmi';
+import { usePublicClient, useAccount } from 'wagmi';
 import { formatEther } from 'viem';
 import { useWalletContext } from '../context/WalletContext';
 
@@ -24,7 +24,6 @@ export function useTransactionHistory() {
   const wagmiAccount = useAccount();
   const { address, isConnected } = useWalletContext();
   const publicClient = usePublicClient();
-  const { data: blockNumber } = useBlockNumber({ watch: true });
 
   const walletAddress = address || wagmiAccount.address;
 
@@ -32,7 +31,7 @@ export function useTransactionHistory() {
     let isMounted = true;
 
     async function fetchTransactionHistory() {
-      if (!walletAddress || !publicClient || !blockNumber) {
+      if (!walletAddress || !publicClient) {
         setIsLoading(false);
         return;
       }
@@ -41,56 +40,63 @@ export function useTransactionHistory() {
       setError(null);
 
       try {
+        // Read the head here rather than from useBlockNumber({ watch: true }).
+        // Watching put a value that changes every block into this effect's
+        // dependency array, so the whole scan re-ran on every new block (~12s on
+        // Sepolia) on top of the 30s interval — enough to exhaust a public RPC's
+        // rate limit, and it re-triggered the anomaly request each time too.
+        const head = await publicClient.getBlockNumber();
+
         const lookbackBlocks = 10;
-        const blockRange = Math.min(Number(blockNumber), lookbackBlocks);
+        const blockRange = Math.min(Number(head), lookbackBlocks);
+
+        // Fetched together instead of awaited one at a time: the requests are
+        // independent, so serialising them multiplied latency by the lookback.
+        const blocks = await Promise.all(
+          Array.from({ length: blockRange }, (_, i) =>
+            publicClient
+              .getBlock({
+                blockNumber: head - BigInt(i),
+                includeTransactions: true,
+              })
+              .catch((blockError) => {
+                console.warn(
+                  `Error processing block ${head - BigInt(i)}:`,
+                  blockError,
+                );
+                return null;
+              }),
+          ),
+        );
 
         const processedTxs: Transaction[] = [];
+        const userAddressLower = walletAddress.toLowerCase();
 
-        for (let i = 0; i < blockRange; i++) {
-          try {
-            const blockNum = BigInt(Number(blockNumber) - i);
+        for (const block of blocks) {
+          if (!block?.transactions) continue;
 
-            const block = await publicClient.getBlock({
-              blockNumber: blockNum,
-              includeTransactions: true,
-            });
+          for (const tx of block.transactions) {
+            if (typeof tx === 'string') continue;
 
-            if (
-              !block.transactions ||
-              typeof block.transactions[0] === 'string'
-            ) {
-              continue;
+            const toAddressLower = tx.to?.toLowerCase() || '';
+            const fromAddressLower = tx.from.toLowerCase();
+
+            const isIncoming = toAddressLower === userAddressLower;
+            const isOutgoing = fromAddressLower === userAddressLower;
+
+            if (isIncoming || isOutgoing) {
+              processedTxs.push({
+                hash: tx.hash,
+                from: tx.from,
+                to: tx.to,
+                value: formatEther(tx.value),
+                timestamp: Number(block.timestamp),
+                isIncoming,
+                valueWei: tx.value.toString(),
+                gas: tx.gas.toString(),
+                gasPrice: (tx.gasPrice ?? tx.maxFeePerGas ?? 0n).toString(),
+              });
             }
-
-            for (const tx of block.transactions) {
-              if (typeof tx === 'string') continue;
-
-              const toAddressLower = tx.to?.toLowerCase() || '';
-              const fromAddressLower = tx.from.toLowerCase();
-              const userAddressLower = walletAddress.toLowerCase();
-
-              const isIncoming = toAddressLower === userAddressLower;
-              const isOutgoing = fromAddressLower === userAddressLower;
-
-              if (isIncoming || isOutgoing) {
-                processedTxs.push({
-                  hash: tx.hash,
-                  from: tx.from,
-                  to: tx.to,
-                  value: formatEther(tx.value),
-                  timestamp: Number(block.timestamp),
-                  isIncoming,
-                  valueWei: tx.value.toString(),
-                  gas: tx.gas.toString(),
-                  gasPrice: (tx.gasPrice ?? tx.maxFeePerGas ?? 0n).toString(),
-                });
-              }
-            }
-          } catch (blockError) {
-            console.warn(
-              `Error processing block ${Number(blockNumber) - i}:`,
-              blockError,
-            );
           }
         }
 
@@ -122,7 +128,7 @@ export function useTransactionHistory() {
       isMounted = false;
       clearInterval(intervalId);
     };
-  }, [walletAddress, publicClient, blockNumber]);
+  }, [walletAddress, publicClient]);
 
   return { transactions, isLoading, error };
 }

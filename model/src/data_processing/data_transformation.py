@@ -33,7 +33,12 @@ class DataTransformer:
 
         :return: DataFrame with converted timestamps.
         """
-        self.df['timeStamp'] = pd.to_datetime(self.df['timeStamp'], unit='s', errors='coerce')
+        self.df = self.df.copy()
+        # errors='coerce' with unit='s' needs numeric input; the API delivers the
+        # UNIX timestamp as a string.
+        self.df['timeStamp'] = pd.to_datetime(
+            pd.to_numeric(self.df['timeStamp'], errors='coerce'), unit='s', errors='coerce'
+        )
         logger.info("Converted UNIX timestamps to human-readable datetime format.")
         return self.df
 

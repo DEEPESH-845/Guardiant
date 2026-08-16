@@ -1,168 +1,130 @@
 import { NextResponse } from 'next/server';
+import { z } from 'zod';
 import getMongoClient from '../../../lib/mongodb';
+
+// Every value that reaches a Mongo query filter must be a validated primitive.
+// Previously `tokenAddress` went straight from the JSON body into
+// `findOne({ tokenAddress })` and `updateOne({ tokenAddress }, ...)`, so a body
+// of {"tokenAddress":{"$ne":null}} matched the first document in the collection
+// and overwrote an arbitrary token's name, symbol, supply and image URL.
+const saveCoinSchema = z.object({
+  tokenAddress: z
+    .string()
+    .regex(/^0x[a-fA-F0-9]{40}$/, 'tokenAddress must be a 20-byte hex address'),
+  tokenName: z.string().max(128).optional(),
+  tokenSymbol: z.string().max(32).optional(),
+  initialSupply: z.union([z.string().max(78), z.number()]).optional(),
+  // Base64 image payload. Bounded so a single request cannot push an arbitrary
+  // amount of data at ImgBB or into the free-tier cluster.
+  imageBuffer: z.string().max(8 * 1024 * 1024).optional(),
+});
 
 export async function GET() {
   try {
-    console.log('Fetching all tokens from database...');
     const client = await getMongoClient();
     const db = client.db('memecoins');
-    const data = await db.collection('coins').find({}).toArray();
-    console.log(`Found ${data.length} tokens in database`);
+    const data = await db.collection('coins').find({}).limit(500).toArray();
     return NextResponse.json(data);
   } catch (error) {
     console.error('Error fetching tokens:', error);
-    return NextResponse.json(
-      {
-        error: 'Failed to fetch data',
-        details: error instanceof Error ? error.message : String(error),
-      },
-      { status: 500 },
-    );
+    return NextResponse.json({ error: 'Failed to fetch data' }, { status: 500 });
   }
 }
 
 export async function POST(request: Request) {
-  console.log('Token save request received');
-
   try {
-    const body = await request.json();
-    console.log('Request body parsed successfully');
-
-    const { imageBuffer, tokenAddress, tokenName, tokenSymbol, initialSupply } =
-      body;
-
-    if (!tokenAddress) {
-      console.error('Missing token address in request');
+    const parsed = saveCoinSchema.safeParse(await request.json());
+    if (!parsed.success) {
       return NextResponse.json(
-        { error: 'Missing tokenAddress' },
+        { error: 'Invalid request', issues: parsed.error.flatten().fieldErrors },
         { status: 400 },
       );
     }
 
-    console.log('Saving token data:', {
-      tokenAddress,
-      tokenName,
-      tokenSymbol,
-      initialSupply,
-      hasImage: !!imageBuffer && imageBuffer.length > 0,
-    });
+    const { imageBuffer, tokenAddress, tokenName, tokenSymbol, initialSupply } =
+      parsed.data;
 
     let imageUrl = '';
 
-    // Only process image if we have image data
     if (imageBuffer && imageBuffer.length > 0) {
       try {
         const imgbbKey = process.env.IMGBB_API_KEY;
         if (!imgbbKey) {
-          console.warn('IMGBB_API_KEY environment variable is not configured.');
+          console.warn('IMGBB_API_KEY is not configured; skipping image upload.');
         } else {
-          console.log('Uploading image to ImgBB...');
-          const uploadUrl = `https://api.imgbb.com/1/upload?key=${imgbbKey}`;
           const formData = new URLSearchParams();
           formData.append('image', imageBuffer);
 
-          const imgbbResponse = await fetch(uploadUrl, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/x-www-form-urlencoded',
+          const imgbbResponse = await fetch(
+            `https://api.imgbb.com/1/upload?key=${imgbbKey}`,
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+              body: formData.toString(),
+              signal: AbortSignal.timeout(20_000),
             },
-            body: formData.toString(),
-          });
+          );
 
           const imgbbData = await imgbbResponse.json();
-          if (imgbbData?.data?.url) {
+          if (typeof imgbbData?.data?.url === 'string') {
             imageUrl = imgbbData.data.url;
-            console.log('Image uploaded successfully:', imageUrl);
           } else {
-            console.warn('Failed to upload image to imgbb:', imgbbData);
+            console.warn('ImgBB upload did not return a URL');
           }
         }
       } catch (imgError) {
         console.error('Error uploading image:', imgError);
-        // Continue even if image upload fails
+        // Continue even if image upload fails.
       }
     }
 
-    console.log('Connecting to MongoDB...');
     const client = await getMongoClient();
-    console.log('MongoDB connection successful');
-
     const db = client.db('memecoins');
-    console.log('Database selected: memecoins');
+    const coins = db.collection('coins');
 
-    // Check if this token already exists in the database
-    console.log('Checking if token exists in database:', tokenAddress);
-    const existingToken = await db
-      .collection('coins')
-      .findOne({ tokenAddress });
-    console.log('Existing token check result:', !!existingToken);
+    const existingToken = await coins.findOne({ tokenAddress });
 
     if (existingToken) {
-      // Update the existing token
-      console.log('Updating existing token in database');
-      const updateData: any = {
+      const updateData: Record<string, unknown> = {
         name: tokenName || existingToken.name,
         symbol: tokenSymbol || existingToken.symbol,
-        initialSupply: initialSupply || existingToken.initialSupply,
+        initialSupply: initialSupply ?? existingToken.initialSupply,
         updatedAt: new Date(),
       };
+      if (imageUrl) updateData.imageUrl = imageUrl;
 
-      // Only update image if we have a new one
-      if (imageUrl) {
-        updateData.imageUrl = imageUrl;
-      }
+      await coins.updateOne({ tokenAddress }, { $set: updateData });
 
-      const result = await db
-        .collection('coins')
-        .updateOne({ tokenAddress }, { $set: updateData });
-
-      console.log('Token updated in database:', result);
       return NextResponse.json({
         success: true,
-        data: result,
         updated: true,
         message: 'Token updated successfully',
       });
-    } else {
-      // Insert new token
-      console.log('Inserting new token in database');
-      const newToken = {
-        tokenAddress,
-        imageUrl,
-        name: tokenName,
-        symbol: tokenSymbol,
-        initialSupply,
-        createdAt: new Date(),
-      };
-
-      const result = await db.collection('coins').insertOne(newToken);
-      console.log('New token inserted in database:', result);
-
-      // Verify the insert by retrieving the document
-      const verifyResult = await db
-        .collection('coins')
-        .findOne({ _id: result.insertedId });
-      console.log('Inserted token verified:', !!verifyResult);
-
-      return NextResponse.json({
-        success: true,
-        data: result,
-        created: true,
-        message: 'Token created successfully',
-        token: verifyResult,
-      });
     }
-  } catch (error) {
-    console.error('Error saving token:', error);
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    console.error('Error details:', errorMessage);
 
+    const newToken = {
+      tokenAddress,
+      imageUrl,
+      name: tokenName,
+      symbol: tokenSymbol,
+      initialSupply,
+      createdAt: new Date(),
+    };
+
+    const result = await coins.insertOne(newToken);
+
+    return NextResponse.json({
+      success: true,
+      created: true,
+      message: 'Token created successfully',
+      token: { ...newToken, _id: result.insertedId },
+    });
+  } catch (error) {
+    // Logged server-side only. The response previously carried error.message and
+    // a full stack trace, which leaks server paths and database topology.
+    console.error('Error saving token:', error);
     return NextResponse.json(
-      {
-        error: 'Internal Server Error',
-        message: errorMessage,
-        stack: error instanceof Error ? error.stack : undefined,
-      },
+      { error: 'Internal Server Error' },
       { status: 500 },
     );
   }

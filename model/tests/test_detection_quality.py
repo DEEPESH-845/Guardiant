@@ -66,6 +66,37 @@ def test_false_positive_rate_on_held_out_normal_traffic():
     return rate
 
 
+def test_results_are_json_serialisable():
+    """
+    Every field must be a plain Python type. numpy scalars leak through easily —
+    `np.bool_ or x` returns the np.bool_ itself — and FastAPI then 500s on the
+    way out, which only shows up over HTTP, never in a direct function call.
+    """
+    import json
+
+    batch = [
+        tx("0xnormal", 0.05, 21_000, 25),
+        tx("0xapprove", 0, 50_000, 25),   # forest-flagged, no threshold breached
+        tx("0xdrain", 900.0, 21_000, 20),  # threshold-breached
+    ]
+    results = detect_anomalies(batch)
+    json.dumps(results)  # raises TypeError on any numpy scalar
+    for r in results:
+        assert type(r["is_anomaly"]) is bool, f"{r['transaction_hash']}: {type(r['is_anomaly'])}"
+
+
+def test_zero_value_transactions_are_scored():
+    """
+    ERC-20 approvals carry value == 0. They used to be filtered out during
+    cleaning, so the caller silently got back fewer results than it sent and the
+    UI rendered them as unchecked-but-fine.
+    """
+    batch = [tx("0xa", 0.05, 21_000, 25), tx("0xapprove", 0, 50_000, 25)]
+    results = detect_anomalies(batch)
+    assert len(results) == len(batch)
+    assert {r["transaction_hash"] for r in results} == {"0xa", "0xapprove"}
+
+
 def test_recall_on_obvious_attacks():
     attacks = [
         tx("0xa0", 900.0, 21_000, 20),          # large drain, ordinary gas
@@ -82,6 +113,8 @@ if __name__ == "__main__":
     test_single_transaction_does_not_crash()
     test_score_is_independent_of_batch()
     test_catches_a_drain_at_ordinary_gas()
+    test_results_are_json_serialisable()
+    test_zero_value_transactions_are_scored()
     caught = test_recall_on_obvious_attacks()
     rate = test_false_positive_rate_on_held_out_normal_traffic()
     print(f"OK — recall {caught}/{caught} on obvious attacks, "
