@@ -2,13 +2,14 @@ import { getDefaultConfig } from '@rainbow-me/rainbowkit';
 import {
   arbitrum,
   base,
+  baseSepolia,
   mainnet,
   optimism,
   polygon,
   sepolia,
   Chain,
 } from 'wagmi/chains';
-import { http } from 'wagmi';
+import { http, cookieStorage, createStorage } from 'wagmi';
 
 // Configure Hardhat local network
 export const hardhat: Chain = {
@@ -29,21 +30,45 @@ export const hardhat: Chain = {
   },
 };
 
+// Get one at https://cloud.reown.com — WalletConnect refuses connections without it.
+const projectId = process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID;
+if (!projectId && typeof window !== 'undefined') {
+  console.warn(
+    'NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID is not set — WalletConnect wallets will fail to connect.',
+  );
+}
+
+// The chain the deployed contracts live on. Defaults to local Hardhat for dev.
+const defaultChainId = Number(
+  process.env.NEXT_PUBLIC_DEFAULT_CHAIN_ID ?? hardhat.id,
+);
+
+const supported = [
+  hardhat,
+  sepolia,
+  baseSepolia,
+  mainnet,
+  polygon,
+  optimism,
+  arbitrum,
+  base,
+] as const;
+
+const defaultChain =
+  supported.find((c) => c.id === defaultChainId) ?? (hardhat as Chain);
+
 export const config = getDefaultConfig({
-  appName: 'Wallet Dashboard',
-  projectId: 'YOUR_PROJECT_ID',
-  chains: [
-    hardhat,
-    // Keep these other chains for development/testing purposes
-    mainnet,
-    polygon,
-    optimism,
-    arbitrum,
-    base,
-    ...(process.env.NEXT_PUBLIC_ENABLE_TESTNETS === 'true' ? [sepolia] : []),
-  ],
+  appName: 'Guardiant',
+  projectId: projectId ?? 'MISSING_WALLETCONNECT_PROJECT_ID',
+  // Put the deployment's chain first so RainbowKit defaults to it.
+  chains: [defaultChain, ...supported.filter((c) => c.id !== defaultChain.id)] as
+    unknown as readonly [Chain, ...Chain[]],
   transports: {
     [hardhat.id]: http('http://127.0.0.1:8545'),
+    [sepolia.id]: http(process.env.NEXT_PUBLIC_SEPOLIA_RPC_URL),
+    [baseSepolia.id]: http(process.env.NEXT_PUBLIC_BASE_SEPOLIA_RPC_URL),
   },
+  // cookieStorage keeps the config server-safe during prerender (no localStorage).
+  storage: createStorage({ storage: cookieStorage }),
   ssr: true,
 });

@@ -122,7 +122,7 @@ def detect_anomalies(transactions, model_path='models'):
         # Load model and detect anomalies
         detector = AnomalyDetectorIsolationForest.load_model(model_path)
         detector.df = transformed_data
-        detector.prepare_features()  # Now safe to call after setting df
+        detector.prepare_features(fit_scaler=False)  # reuse the scaler fitted at training time
         results_df = detector.detect_anomalies()
         
         # Extract results

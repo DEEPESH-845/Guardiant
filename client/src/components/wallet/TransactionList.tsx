@@ -6,13 +6,15 @@ import {
   FaExchangeAlt,
   FaExternalLinkAlt,
   FaBug,
+  FaShieldAlt,
 } from 'react-icons/fa';
 import {
   useTransactionHistory,
   Transaction,
 } from '../../hooks/useTransactionHistory';
+import { useAnomalyDetection } from '../../hooks/useAnomalyDetection';
 import { useWalletContext } from '../../context/WalletContext';
-import { usePublicClient, useBlockNumber } from 'wagmi';
+import { usePublicClient, useBlockNumber, useAccount } from 'wagmi';
 
 interface TransactionListProps {
   limit?: number;
@@ -53,9 +55,17 @@ export default function TransactionList({
   const pageSize = limit || 5;
 
   const { transactions, isLoading, error } = useTransactionHistory();
+  const { results: anomalies, error: anomalyError } =
+    useAnomalyDetection(transactions);
   const { address, isConnected } = useWalletContext();
   const publicClient = usePublicClient();
+  const { chain } = useAccount();
   const { data: blockNumber } = useBlockNumber();
+
+  const explorerTxUrl = (hash: string) => {
+    const base = chain?.blockExplorers?.default.url ?? 'https://etherscan.io';
+    return `${base}/tx/${hash}`;
+  };
 
   if (showDebug) {
     return (
@@ -94,6 +104,12 @@ export default function TransactionList({
           <div>
             <p className="text-foreground">Transactions Count:</p>
             <p>{transactions.length}</p>
+          </div>
+          <div>
+            <p className="text-foreground">Anomaly Service:</p>
+            <p className={anomalyError ? 'text-red-400' : ''}>
+              {anomalyError ?? 'Reachable'}
+            </p>
           </div>
         </div>
 
@@ -209,8 +225,19 @@ export default function TransactionList({
                   )}
                 </div>
                 <div>
-                  <h3 className="text-xl font-medium text-white">
+                  <h3 className="text-xl font-medium text-white flex items-center gap-2">
                     {tx.isIncoming ? 'Received' : 'Sent'}
+                    {anomalies[tx.hash]?.is_anomaly && (
+                      <span
+                        className="inline-flex items-center gap-1 rounded-full bg-red-500/15 px-2 py-0.5 text-xs font-medium text-red-400"
+                        title={anomalies[tx.hash].anomaly_types
+                          .map((a) => `${a.type}: ${a.details}`)
+                          .join('\n')}
+                      >
+                        <FaShieldAlt aria-hidden />
+                        Anomaly
+                      </span>
+                    )}
                   </h3>
                   <p className="text-foreground text-sm">
                     {formatDate(tx.timestamp)}
@@ -258,15 +285,36 @@ export default function TransactionList({
                     <p className="text-foreground text-sm">Value:</p>
                     <p className="text-white">{formatValue(tx.value)}</p>
                   </div>
+                  {anomalies[tx.hash] && (
+                    <div>
+                      <p className="text-foreground text-sm">Risk Analysis:</p>
+                      <ul className="text-white text-sm">
+                        {anomalies[tx.hash].anomaly_types.map((a, i) => (
+                          <li key={i}>
+                            <span
+                              className={
+                                a.severity === 'none'
+                                  ? 'text-green-400'
+                                  : 'text-red-400'
+                              }
+                            >
+                              {a.type}
+                            </span>{' '}
+                            — {a.details}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
                 </div>
                 <div className="flex justify-end">
                   <a
-                    href={`https://etherscan.io/tx/${tx.hash}`}
+                    href={explorerTxUrl(tx.hash)}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="flex items-center gap-2 text-foreground hover:text-white transition-colors"
                   >
-                    <span>View on Etherscan</span>
+                    <span>View on explorer</span>
                     <FaExternalLinkAlt />
                   </a>
                 </div>

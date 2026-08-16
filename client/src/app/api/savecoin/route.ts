@@ -1,10 +1,10 @@
 import { NextResponse } from 'next/server';
-import clientPromise from '../../../lib/mongodb';
+import getMongoClient from '../../../lib/mongodb';
 
 export async function GET() {
   try {
     console.log('Fetching all tokens from database...');
-    const client = await clientPromise;
+    const client = await getMongoClient();
     const db = client.db('memecoins');
     const data = await db.collection('coins').find({}).toArray();
     console.log(`Found ${data.length} tokens in database`);
@@ -84,7 +84,7 @@ export async function POST(request: Request) {
     }
 
     console.log('Connecting to MongoDB...');
-    const client = await clientPromise;
+    const client = await getMongoClient();
     console.log('MongoDB connection successful');
 
     const db = client.db('memecoins');

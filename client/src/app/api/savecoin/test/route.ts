@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import clientPromise from '../../../../lib/mongodb';
+import getMongoClient from '../../../../lib/mongodb';
 
 export async function POST(request: Request) {
   try {
@@ -7,7 +7,7 @@ export async function POST(request: Request) {
     const body = await request.json();
 
     // Test MongoDB connection
-    const client = await clientPromise;
+    const client = await getMongoClient();
     console.log('MongoDB client connected successfully');
 
     const db = client.db('memecoins');
