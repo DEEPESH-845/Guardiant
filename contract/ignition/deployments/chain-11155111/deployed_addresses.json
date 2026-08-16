@@ -1,0 +1,8 @@
+{
+  "GuardiantModule#TokenFactory": "0x4Bd3D446f80B8B28C40FA2875cF910b000472D5E",
+  "GuardiantModule#TransferTo": "0xdf8f44F3dD9C7D3977f5e29FFd916384cbB595F2",
+  "GuardiantModule#Wallet": "0xBf0AE445Ee0581048c047FC95894A26DAB76FeBb",
+  "GuardiantModule#CustomToken": "0x5c6f3410Ddf6D371ae0F17Ed932136A9A79357bd",
+  "GuardiantModule#LiquidityPool": "0x93EF97D253D3711DE7fEf5087A7E89019B4BA513",
+  "GuardiantModule#AnomalyGuardWallet": "0x078c4F99DB588f369C4FDE4f70F1289b7b20f12D"
+}
