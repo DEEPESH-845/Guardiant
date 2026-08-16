@@ -10,6 +10,10 @@ export interface Transaction {
   value: string;
   timestamp: number;
   isIncoming: boolean;
+  /** wei, as decimal strings — what the anomaly model consumes */
+  valueWei: string;
+  gas: string;
+  gasPrice: string;
 }
 
 export function useTransactionHistory() {
@@ -76,6 +80,9 @@ export function useTransactionHistory() {
                   value: formatEther(tx.value),
                   timestamp: Number(block.timestamp),
                   isIncoming,
+                  valueWei: tx.value.toString(),
+                  gas: tx.gas.toString(),
+                  gasPrice: (tx.gasPrice ?? tx.maxFeePerGas ?? 0n).toString(),
                 });
               }
             }
@@ -116,44 +123,6 @@ export function useTransactionHistory() {
       clearInterval(intervalId);
     };
   }, [walletAddress, publicClient, blockNumber]);
-
-  const useDummyData = false;
-
-  if (useDummyData) {
-    const now = Math.floor(Date.now() / 1000);
-    const dummyTxs: Transaction[] = [
-      {
-        hash: '0x123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
-        from: '0x1234567890123456789012345678901234567890',
-        to: walletAddress as string,
-        value: '0.1',
-        timestamp: now - 300,
-        isIncoming: true,
-      },
-      {
-        hash: '0xabcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456',
-        from: walletAddress as string,
-        to: '0x2345678901234567890123456789012345678901',
-        value: '0.05',
-        timestamp: now - 3600,
-        isIncoming: false,
-      },
-      {
-        hash: '0x789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234',
-        from: '0x3456789012345678901234567890123456789012',
-        to: walletAddress as string,
-        value: '0.2',
-        timestamp: now - 7200,
-        isIncoming: true,
-      },
-    ];
-
-    return {
-      transactions: dummyTxs,
-      isLoading: false,
-      error: null,
-    };
-  }
 
   return { transactions, isLoading, error };
 }

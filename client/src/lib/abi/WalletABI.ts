@@ -138,4 +138,4 @@ export const WalletABI = [
     stateMutability: 'view',
     type: 'function',
   },
-];
+] as const;

@@ -313,7 +313,7 @@ export default function TransactionPage() {
         className="bg-white/5 rounded-3xl p-6 w-full max-w-md shadow-lg"
         onSubmit={handleSubmit}
       >
-        <h2 className="text-lg font-medium mb-4">You're sending</h2>
+        <h2 className="text-lg font-medium mb-4">You&apos;re sending</h2>
         <div className="flex flex-col justify-between items-center bg-white/5 rounded-xl px-4 py-3 mb-4">
           <div className="flex items-center justify-center w-full">
             <input

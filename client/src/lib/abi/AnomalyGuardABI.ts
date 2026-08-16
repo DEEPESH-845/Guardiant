@@ -98,4 +98,4 @@ export const AnomalyGuardABI = [
     stateMutability: 'payable',
     type: 'receive',
   },
-];
+] as const;

@@ -22,4 +22,4 @@ export const TransferToABI = [
     stateMutability: 'nonpayable',
     type: 'function',
   },
-];
+] as const;

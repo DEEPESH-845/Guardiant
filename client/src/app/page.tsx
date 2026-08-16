@@ -86,7 +86,7 @@ export default function Home() {
               </h3>
             </div>
             <p className="text-muted-foreground text-white">
-              If an anomaly is detected, the contract automatically "cashes out"
+              If an anomaly is detected, the contract automatically &quot;cashes out&quot;
               and self-destructs to protect your funds.
             </p>
           </div>
@@ -101,7 +101,7 @@ export default function Home() {
               </h3>
             </div>
             <p className="text-muted-foreground text-white">
-              Enhanced protection using Web3 principles and Solidity's
+              Enhanced protection using Web3 principles and Solidity&apos;s
               selfdestruct function.
             </p>
           </div>
