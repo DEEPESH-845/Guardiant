@@ -34,7 +34,10 @@ class DataCleaner:
         :return: Cleaned DataFrame without duplicates.
         """
         initial_count = len(self.df)
-        self.df.drop_duplicates(inplace=True)
+        # Not inplace: self.df may be a slice of the caller's frame, and mutating
+        # a slice raises SettingWithCopyWarning today and silently does nothing
+        # under pandas' copy-on-write.
+        self.df = self.df.drop_duplicates().copy()
         final_count = len(self.df)
         logger.info(f"Removed {initial_count - final_count} duplicate rows.")
         return self.df
@@ -45,7 +48,7 @@ class DataCleaner:
 
         :return: Cleaned DataFrame with no missing values.
         """
-        self.df.fillna(0, inplace=True)
+        self.df = self.df.fillna(0)
         logger.info("Handled missing values by filling with default value 0.")
         return self.df
 
@@ -55,21 +58,34 @@ class DataCleaner:
 
         :return: DataFrame with valid transactions only.
         """
+        self.df = self.df.copy()
         self.df['value'] = pd.to_numeric(self.df['value'], errors='coerce')  # Convert values to numeric
         initial_count = len(self.df)
-        self.df = self.df[self.df['value'] > 0]  # Keep only transactions with positive values
+        self.df = self.df[self.df['value'] > 0].copy()  # Keep only transactions with positive values
         final_count = len(self.df)
         logger.info(f"Filtered out {initial_count - final_count} invalid transactions with zero or negative value.")
         return self.df
 
-    def clean_data(self):
+    def clean_data(self, drop_invalid: bool = True):
         """
-        Executes all cleaning steps: removes duplicates, handles missing values, and filters invalid transactions.
+        Executes all cleaning steps: removes duplicates, handles missing values, and
+        optionally filters invalid transactions.
 
+        :param drop_invalid: Drop zero/negative-value rows. Correct when fitting a
+            model, but it must be False when scoring: dropping rows there means the
+            caller gets back fewer results than it sent, with no indication which
+            ones vanished. Zero-value transactions are ERC-20 approvals and other
+            contract calls — the most common rug-pull vector — so silently
+            discarding them made the highest-risk transactions render as though
+            they had been checked and cleared.
         :return: Fully cleaned DataFrame.
         """
         self.remove_duplicates()
         self.handle_missing_values()
-        self.filter_invalid_transactions()
+        if drop_invalid:
+            self.filter_invalid_transactions()
+        else:
+            self.df = self.df.copy()
+            self.df['value'] = pd.to_numeric(self.df['value'], errors='coerce').fillna(0)
         logger.info("Data cleaning process completed successfully.")
         return self.df

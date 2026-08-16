@@ -1,49 +1,36 @@
 import { NextResponse } from 'next/server';
 import getMongoClient from '../../../../lib/mongodb';
 
-export async function POST(request: Request) {
+/**
+ * Connectivity check for the Atlas cluster.
+ *
+ * This used to accept any JSON body and insert it verbatim into
+ * `test_collection`, unauthenticated — an open write endpoint against a 512 MB
+ * free-tier cluster, reachable by anyone who could guess the path. It now pings
+ * the server instead, which verifies exactly what the runbook needs (credentials
+ * work, network access allows Vercel) without storing anything.
+ */
+async function check() {
   try {
-    console.log('Testing MongoDB connection...');
-    const body = await request.json();
-
-    // Test MongoDB connection
     const client = await getMongoClient();
-    console.log('MongoDB client connected successfully');
-
-    const db = client.db('memecoins');
-    console.log('Database selected: memecoins');
-
-    // Insert a test document
-    const testData = {
-      test: true,
-      message: 'Test connection',
-      timestamp: new Date(),
-      data: body,
-    };
-
-    const result = await db.collection('test_collection').insertOne(testData);
-    console.log('Test document inserted:', result);
-
-    // Try to retrieve the document to verify
-    const verifyResult = await db
-      .collection('test_collection')
-      .findOne({ _id: result.insertedId });
-    console.log('Test document retrieved:', verifyResult);
-
+    await client.db('memecoins').command({ ping: 1 });
     return NextResponse.json({
       success: true,
       message: 'MongoDB connection successful',
-      insertResult: result,
-      verifyResult,
     });
   } catch (error) {
-    console.error('MongoDB test connection error:', error);
+    console.error('MongoDB connection check failed:', error);
     return NextResponse.json(
-      {
-        error: 'Failed to connect to MongoDB',
-        details: error instanceof Error ? error.message : String(error),
-      },
+      { success: false, error: 'Failed to connect to MongoDB' },
       { status: 500 },
     );
   }
+}
+
+export async function GET() {
+  return check();
+}
+
+export async function POST() {
+  return check();
 }

@@ -38,8 +38,19 @@ export default function LiquidityPage() {
 
       setStatus('⏳ Adding liquidity…')
       const poolContract = new ethers.Contract(poolAddress, LiquidityPoolAbi, signer)
+      // minShares: accept up to 1% fewer shares than the pool quotes right now,
+      // so the deposit reverts rather than settling at a price someone moved in
+      // the meantime. staticCall quotes without sending the transaction.
+      const quotedShares = await poolContract.addLiquidity.staticCall(
+        ethers.parseUnits(tokenAmt, 18),
+        0,
+        { value: ethers.parseEther(ethAmt) }
+      )
+      const minShares = (quotedShares * 99n) / 100n
+
       const addTx = await poolContract.addLiquidity(
         ethers.parseUnits(tokenAmt, 18),
+        minShares,
         { value: ethers.parseEther(ethAmt) }
       )
       await addTx.wait()

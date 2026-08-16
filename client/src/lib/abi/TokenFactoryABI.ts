@@ -1,3 +1,5 @@
+// Generated from contract/artifacts/contracts/TokenFactory.sol/TokenFactory.json
+// Regenerate after changing the contract: npx hardhat compile
 export const TokenFactoryABI = [
   {
     anonymous: false,
@@ -6,57 +8,57 @@ export const TokenFactoryABI = [
         indexed: false,
         internalType: 'address',
         name: 'tokenAddress',
-        type: 'address',
+        type: 'address'
       },
       {
         indexed: false,
         internalType: 'string',
         name: 'name',
-        type: 'string',
+        type: 'string'
       },
       {
         indexed: false,
         internalType: 'string',
         name: 'symbol',
-        type: 'string',
+        type: 'string'
       },
       {
         indexed: false,
         internalType: 'uint256',
         name: 'initialSupply',
-        type: 'uint256',
+        type: 'uint256'
       },
       {
         indexed: false,
         internalType: 'address',
         name: 'creator',
-        type: 'address',
-      },
+        type: 'address'
+      }
     ],
     name: 'TokenCreated',
-    type: 'event',
+    type: 'event'
   },
   {
     inputs: [
       {
         internalType: 'string',
         name: 'name',
-        type: 'string',
+        type: 'string'
       },
       {
         internalType: 'string',
         name: 'symbol',
-        type: 'string',
+        type: 'string'
       },
       {
         internalType: 'uint256',
         name: 'initialSupply',
-        type: 'uint256',
-      },
+        type: 'uint256'
+      }
     ],
     name: 'createToken',
     outputs: [],
     stateMutability: 'nonpayable',
-    type: 'function',
-  },
+    type: 'function'
+  }
 ] as const;

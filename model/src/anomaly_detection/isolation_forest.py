@@ -163,7 +163,10 @@ class AnomalyDetectorIsolationForest:
             # is precisely the event this protocol exists to catch.
             anomaly_types = self.identify_anomaly_type(row)
             breached = [a for a in anomaly_types if a['type'] != 'normal']
-            is_anomaly = predictions[i] == -1 or bool(breached)
+            # bool() around the numpy comparison: `np.bool_ or x` returns the
+            # np.bool_ itself when truthy, which FastAPI cannot serialise — so
+            # any forest-only detection would 500 on the way out.
+            is_anomaly = bool(predictions[i] == -1) or bool(breached)
 
             if not is_anomaly:
                 anomaly_types = [{'type': 'normal', 'severity': 'none', 'details': 'No anomalies detected'}]

@@ -12,6 +12,9 @@ export const useCryptoPrice = () => {
   const [prices, setPrices] = useState<CryptoPrice[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // True when /api/crypto served placeholder numbers because CoinMarketCap was
+  // unreachable or unconfigured. Callers must label these as not live.
+  const [isFallback, setIsFallback] = useState(false);
 
   const fetchPrices = async () => {
     try {
@@ -31,6 +34,7 @@ export const useCryptoPrice = () => {
       }));
 
       setPrices(formattedPrices);
+      setIsFallback(Boolean(data.fallback));
       setLoading(false);
     } catch (err) {
       console.error('API Error:', err);
@@ -45,5 +49,5 @@ export const useCryptoPrice = () => {
     return () => clearInterval(interval);
   }, []);
 
-  return { prices, loading, error };
+  return { prices, loading, error, isFallback };
 };

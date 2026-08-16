@@ -3,9 +3,10 @@ import {
   useWriteContract,
   useSendTransaction as useWagmiSendTransaction,
   useBalance,
+  usePublicClient,
 } from 'wagmi';
 import { WalletABI, WALLET_CONTRACT_ADDRESS } from '../lib/contract';
-import { parseEther, formatEther } from 'viem';
+import { parseEther, formatEther, formatUnits, erc20Abi } from 'viem';
 import { useState, useEffect } from 'react';
 import { useWalletContext } from '../context/WalletContext';
 
@@ -278,6 +279,7 @@ export function useGetAllBalances() {
   >([]);
   const [isLoading, setIsLoading] = useState(true);
   const { address, isConnected } = useWalletContext();
+  const publicClient = usePublicClient();
   const ETH_ADDRESS = WALLET_CONTRACT_ADDRESS;
 
   useEffect(() => {
@@ -300,32 +302,42 @@ export function useGetAllBalances() {
           symbol: ethSymbol || 'ETH',
         });
 
-        if (tokens && tokens.length > 0) {
+        // Real ERC-20 reads. These were previously invented values keyed off
+        // Hardhat's deterministic local addresses — a connected wallet was shown
+        // '0.05 BTC' / '1.25 LINK' it did not hold, and every token on a real
+        // network fell through to a flat '0.01 TOKEN'.
+        if (publicClient && address && tokens && tokens.length > 0) {
           const otherTokens = tokens.filter(
             (token) => token.toLowerCase() !== ETH_ADDRESS.toLowerCase(),
           );
 
-          const dummyBalances = otherTokens.map((token) => ({
-            token,
-            balance:
-              token === '0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512'
-                ? '0.05'
-                : token === '0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0'
-                  ? '1.25'
-                  : token === '0xCf7Ed3AccA5a467e9e704C703E8D87F634fB0Fc9'
-                    ? '10.5'
-                    : '0.01',
-            symbol:
-              token === '0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512'
-                ? 'BTC'
-                : token === '0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0'
-                  ? 'LINK'
-                  : token === '0xCf7Ed3AccA5a467e9e704C703E8D87F634fB0Fc9'
-                    ? 'DOT'
-                    : 'TOKEN',
-          }));
+          if (otherTokens.length > 0) {
+            const results = await publicClient.multicall({
+              contracts: otherTokens.flatMap((token) => [
+                { address: token, abi: erc20Abi, functionName: 'balanceOf', args: [address] },
+                { address: token, abi: erc20Abi, functionName: 'symbol' },
+                { address: token, abi: erc20Abi, functionName: 'decimals' },
+              ]),
+              allowFailure: true,
+            });
 
-          balances = [...balances, ...dummyBalances];
+            const realBalances = otherTokens.map((token, i) => {
+              const [bal, sym, dec] = results.slice(i * 3, i * 3 + 3);
+              // A token that fails to answer is reported as unknown rather than
+              // given a plausible-looking number.
+              if (bal.status !== 'success') {
+                return { token, balance: '—', symbol: 'UNKNOWN' };
+              }
+              const decimals = dec.status === 'success' ? Number(dec.result) : 18;
+              return {
+                token,
+                balance: formatUnits(bal.result as bigint, decimals),
+                symbol: sym.status === 'success' ? String(sym.result) : 'TOKEN',
+              };
+            });
+
+            balances = [...balances, ...realBalances];
+          }
         }
 
         setTokenBalances(balances);
@@ -337,7 +349,7 @@ export function useGetAllBalances() {
     };
 
     fetchBalances();
-  }, [tokens, ethBalance, ethSymbol, ethBalanceLoading, isConnected, address]);
+  }, [tokens, ethBalance, ethSymbol, ethBalanceLoading, isConnected, address, publicClient]);
 
   return {
     tokenBalances,

@@ -31,7 +31,9 @@ module.exports = buildModule("GuardiantModule", (m) => {
   const approve = m.call(token, "approve", [liquidityPool, LP_TOKEN_AMOUNT], {
     from: deployer,
   });
-  m.call(liquidityPool, "addLiquidity", [LP_TOKEN_AMOUNT], {
+  // minShares 0: this is the pool's very first deposit, so there is no existing
+  // price for it to slip against.
+  m.call(liquidityPool, "addLiquidity", [LP_TOKEN_AMOUNT, 0], {
     from: deployer,
     value: LP_ETH_AMOUNT,
     after: [approve],
