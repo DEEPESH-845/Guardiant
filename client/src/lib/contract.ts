@@ -4,8 +4,11 @@ type Address = `0x${string}`;
 
 // Hardhat's deterministic first-deploy addresses, kept as local-dev defaults.
 // Every deployed environment must override these via NEXT_PUBLIC_* env vars.
+// `||`, not `??`: a key present-but-blank in .env.local (`NEXT_PUBLIC_WALLET_ADDRESS=`)
+// arrives as "", which is not nullish and would otherwise pass through as an
+// invalid address.
 const addr = (value: string | undefined, fallback: string) =>
-  (value ?? fallback) as Address;
+  (value || fallback) as Address;
 
 export const WALLET_CONTRACT_ADDRESS = addr(
   process.env.NEXT_PUBLIC_WALLET_ADDRESS,
