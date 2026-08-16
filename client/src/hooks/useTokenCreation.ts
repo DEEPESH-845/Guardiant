@@ -6,10 +6,7 @@ import {
 } from 'wagmi';
 import { parseEther } from 'viem';
 import { TokenFactoryABI } from '../lib/abi/TokenFactoryABI';
-
-// Token Factory contract address - replace with your deployed contract address
-const TOKEN_FACTORY_ADDRESS =
-  '0x5FbDB2315678afecb367f032d93F642f64180aa3' as const;
+import { TOKEN_FACTORY_ADDRESS } from '../lib/contract';
 
 interface TokenCreatedEvent {
   tokenAddress: `0x${string}`;
@@ -39,7 +36,7 @@ export function useTokenCreation() {
   const { isLoading: isConfirming, isSuccess: isConfirmed } =
     useWaitForTransactionReceipt({
       hash,
-      enabled: !!hash,
+      query: { enabled: !!hash },
     });
 
   // Watch for TokenCreated events

@@ -2,14 +2,13 @@
 
 import { useState } from 'react'
 import { ethers } from 'ethers'
-import { useAccount, useProvider } from 'wagmi'
+import { useAccount, useWalletClient } from 'wagmi'
 import ERC20Abi from '../../abis/ERC20.json'
 import LiquidityPoolAbi from '../../abis/LiquidityPool.json'
 
 export default function LiquidityPage() {
   const { address } = useAccount()
-  const provider = useProvider()
-  const signer = provider.getSigner()
+  const { data: walletClient } = useWalletClient()
 
   const [tokenAmt, setTokenAmt] = useState('1000')
   const [ethAmt, setEthAmt] = useState('0.1')
@@ -19,10 +18,16 @@ export default function LiquidityPage() {
   const tokenAddress = process.env.NEXT_PUBLIC_TOKEN_FACTORY_LP_ADDRESS!
 
   const handleAddLiquidity = async () => {
-    if (!address) {
+    if (!address || !walletClient) {
       return setStatus('🔌 Connect your wallet first.')
     }
+    if (!poolAddress || !tokenAddress) {
+      return setStatus('⚠️ Pool/token addresses are not configured.')
+    }
     try {
+      const signer = await new ethers.BrowserProvider(
+        walletClient.transport,
+      ).getSigner()
       setStatus('⏳ Approving token…')
       const tokenContract = new ethers.Contract(tokenAddress, ERC20Abi, signer)
       const approveTx = await tokenContract.approve(

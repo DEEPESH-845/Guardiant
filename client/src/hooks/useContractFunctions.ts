@@ -278,7 +278,7 @@ export function useGetAllBalances() {
   >([]);
   const [isLoading, setIsLoading] = useState(true);
   const { address, isConnected } = useWalletContext();
-  const ETH_ADDRESS = '0x5FbDB2315678afecb367f032d93F642f64180aa3' as Address;
+  const ETH_ADDRESS = WALLET_CONTRACT_ADDRESS;
 
   useEffect(() => {
     const fetchBalances = async () => {

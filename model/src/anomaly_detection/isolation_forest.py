@@ -45,28 +45,42 @@ class AnomalyDetectorIsolationForest:
         if should_prepare and not self.df.empty:
             self.prepare_features()
 
-    def prepare_features(self):
+    FEATURE_COLUMNS = ['value', 'gas', 'gasPrice', 'value_per_gas', 'total_gas_cost']
+
+    def prepare_features(self, fit_scaler: bool = True):
         """
         Prepare and scale features for anomaly detection.
+
+        :param fit_scaler: Fit the scaler on this data (training). False reuses the
+            scaler loaded with the model, so a score means the same thing whatever
+            else happens to be in the request batch.
         """
         if self.df.empty:
             logger.warning("Cannot prepare features: DataFrame is empty")
             return
-            
+
         # Convert values to numeric
         self.df['value'] = pd.to_numeric(self.df['value'], errors='coerce')
         self.df['gas'] = pd.to_numeric(self.df['gas'], errors='coerce')
         self.df['gasPrice'] = pd.to_numeric(self.df['gasPrice'], errors='coerce')
-        
+
         # Calculate additional features
         self.df['value_per_gas'] = self.df['value'] / self.df['gas']
         self.df['total_gas_cost'] = self.df['gas'] * self.df['gasPrice']
-        
+
         # Select features for analysis
-        self.features = self.df[['value', 'gas', 'gasPrice', 'value_per_gas', 'total_gas_cost']]
-        
-        # Scale features
-        self.scaled_features = self.scaler.fit_transform(self.features)
+        self.features = self.df[self.FEATURE_COLUMNS].fillna(0)
+
+        # All five features are wei/gas magnitudes spanning ~6 orders of magnitude
+        # and are heavily right-skewed. Standardising them raw leaves everything
+        # bar the single largest row within a fraction of a standard deviation of
+        # the mean, so the forest can't isolate anything. log1p first.
+        logged = np.log1p(self.features.clip(lower=0))
+
+        self.scaled_features = (
+            self.scaler.fit_transform(logged) if fit_scaler
+            else self.scaler.transform(logged)
+        )
 
     def train_model(self):
         """
@@ -77,12 +91,15 @@ class AnomalyDetectorIsolationForest:
         logger.info("Training Isolation Forest model...")
         self.model.fit(self.scaled_features)
         
-        # Calculate thresholds for different types of anomalies
+        # Hard thresholds, used as a detector in their own right (see
+        # detect_anomalies), not just to label what the forest already caught.
+        # 99.5th rather than 95th: at 95 these rules would fire on 5% of ordinary
+        # traffic, which is unusable as an alert.
         self.thresholds = {
-            'value': np.percentile(self.features['value'], 95),
-            'gas': np.percentile(self.features['gas'], 95),
-            'gasPrice': np.percentile(self.features['gasPrice'], 95),
-            'value_per_gas': np.percentile(self.features['value_per_gas'], 95)
+            'value': np.percentile(self.features['value'], 99.5),
+            'gas': np.percentile(self.features['gas'], 99.5),
+            'gasPrice': np.percentile(self.features['gasPrice'], 99.5),
+            'value_per_gas': np.percentile(self.features['value_per_gas'], 99.5)
         }
         
         logger.info("Model training completed.")
@@ -135,17 +152,31 @@ class AnomalyDetectorIsolationForest:
         """
         logger.info("Detecting anomalies using Isolation Forest model...")
         predictions = self.model.predict(self.scaled_features)
-        
+
         # Create results list
         results = []
         for i, (_, row) in enumerate(self.features.iterrows()):
-            if predictions[i] == -1:  # If anomaly
-                anomaly_types = self.identify_anomaly_type(row)
-                is_anomaly = True
-            else:
+            # Two independent detectors, union'd. The forest catches unusual
+            # *combinations* of features; the thresholds catch a single feature
+            # going extreme. The forest alone misses a large drain sent at
+            # ordinary gas — one feature far out, everything else textbook — which
+            # is precisely the event this protocol exists to catch.
+            anomaly_types = self.identify_anomaly_type(row)
+            breached = [a for a in anomaly_types if a['type'] != 'normal']
+            is_anomaly = predictions[i] == -1 or bool(breached)
+
+            if not is_anomaly:
                 anomaly_types = [{'type': 'normal', 'severity': 'none', 'details': 'No anomalies detected'}]
-                is_anomaly = False
-            
+            elif not breached:
+                anomaly_types = [{
+                    'type': 'unusual_transaction_pattern',
+                    'severity': 'medium',
+                    'details': 'Isolation Forest flagged this transaction as an outlier '
+                               'relative to normal activity, though no single metric is extreme',
+                }]
+            else:
+                anomaly_types = breached
+
             # Convert timestamp to string if it exists
             timestamp = self.df.iloc[i].get('timeStamp')
             if pd.notnull(timestamp):

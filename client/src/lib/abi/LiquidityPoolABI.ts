@@ -218,4 +218,4 @@ export const LiquidityPoolABI = [
     stateMutability: 'payable',
     type: 'receive',
   },
-];
+] as const;
