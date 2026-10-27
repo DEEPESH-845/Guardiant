@@ -68,8 +68,15 @@ class AnomalyDetectorIsolationForest:
         self.df['value_per_gas'] = self.df['value'] / self.df['gas']
         self.df['total_gas_cost'] = self.df['gas'] * self.df['gasPrice']
 
-        # Select features for analysis
-        self.features = self.df[self.FEATURE_COLUMNS].fillna(0)
+        # Select features for analysis. inf comes from value/gas when gas is 0 —
+        # every ERC-20 approval posted with a zero gas field, and anything a
+        # direct caller sends — and sklearn rejects a non-finite input, so an
+        # unguarded inf is a 500 on the public /detect endpoint.
+        self.features = (
+            self.df[self.FEATURE_COLUMNS]
+            .replace([np.inf, -np.inf], np.nan)
+            .fillna(0)
+        )
 
         # All five features are wei/gas magnitudes spanning ~6 orders of magnitude
         # and are heavily right-skewed. Standardising them raw leaves everything

@@ -5,7 +5,11 @@ FROM python:3.11-slim
 # import fails with PermissionError and the Space never boots. Create the user up
 # front and give it ownership of everything it writes (logs/, and models/ on
 # retrain via POST /train).
-RUN useradd -m -u 1000 user
+# /app has to be owned by `user` too, not just the files inside it: WORKDIR
+# creates the directory as root, and get_logger() does mkdir('logs') relative to
+# the cwd on import, so a root-owned /app fails the build at `RUN python
+# train_baseline.py` and would fail again at runtime.
+RUN useradd -m -u 1000 user && mkdir -p /app && chown user /app
 
 WORKDIR /app
 
